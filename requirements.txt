@@ -1,0 +1,9 @@
+# 解析/生成侧
+pillow>=10.0
+numpy>=1.24
+psd-tools>=1.9      # build_psd.py（多外观合并 PSD）
+zstandard>=0.20     # mzs_decrypt.py（MzS 载荷解压）
+
+# 外部工具（不随本仓库分发，另装）：
+#   FreeMote      — PSB 解包/回封（.NET）
+#   Live2D Cubism — Editor/Viewer（路线②的 GUI 依赖）

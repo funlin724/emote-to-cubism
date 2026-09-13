@@ -1,0 +1,70 @@
+name: asset-guard
+
+# CI 资产守卫：检测到游戏素材/密钥即 fail（见 ASSETS_POLICY.md）
+on:
+  push:
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect game asset files
+        run: |
+          set -e
+          echo "Scanning for game asset extensions..."
+          FOUND=$(find . -type f \
+            \( -name '*.psb' -o -name '*.psb.m' -o -name '*.moc3' \
+               -o -name '*.mtn' -o -name '*.psd' -o -name '*.cmo3' \
+               -o -name '*.can3' -o -name '*.moc' -o -name 'mzs_key.txt' \
+            \) | grep -v '^\./\.git/' || true)
+          if [ -n "$FOUND" ]; then
+            echo "::error::Game asset files detected (forbidden by ASSETS_POLICY.md):"
+            echo "$FOUND"
+            exit 1
+          fi
+
+      - name: Detect large atlas-like PNGs (>2048px either side)
+        run: |
+          set -e
+          pip install pillow
+          python - <<'EOF'
+          import sys, glob
+          from PIL import Image
+          bad = []
+          for p in glob.glob('**/*.png', recursive=True):
+              if p.startswith('.git'):
+                  continue
+              try:
+                  with Image.open(p) as im:
+                      if im.width > 2048 or im.height > 2048:
+                          bad.append((p, im.size))
+              except Exception:
+                  pass
+          if bad:
+              for p, s in bad:
+                  print(f"::error::Atlas-like PNG detected: {p} {s}")
+              sys.exit(1)
+          print("no large PNGs")
+          EOF
+
+      - name: Detect hardcoded keys
+        run: |
+          set -e
+          # 模式：BASE_KEY = '<长 ASCII 常量>' / key = "..." 赋值里的高熵串
+          if grep -rnI --include='*.py' --include='*.md' --include='*.yml' \
+              -E "(BASE_KEY|base_key|MZS_KEY)['\"]?\s*[:=]\s*['\"][A-Za-z0-9]{10,}['\"]" \
+              . ; then
+            echo "::error::Possible hardcoded key detected (ASSETS_POLICY.md red line)"
+            exit 1
+          fi
+          echo "no hardcoded keys"
+
+      - name: Python syntax check
+        run: |
+          set -e
+          python3 -m compileall -q tools

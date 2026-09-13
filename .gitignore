@@ -1,0 +1,46 @@
+# 白名单式 .gitignore：默认全部排除，只放行仓库明文内容
+# 目标：任何游戏素材/密钥/个人环境文件即使误放进来也不会被提交。
+
+# ---- 全局默认：全部排除 ----
+/*
+!/README.md
+!/LICENSE
+!/NOTICE.md
+!/ASSETS_POLICY.md
+!/requirements.txt
+!/.gitattributes
+!/.gitignore
+
+# ---- 放行目录 ----
+!/docs/
+!/tools/
+!/skills/
+!/examples/
+!/.github/
+
+# ---- tools 内仍要排除的内容 ----
+tools/mzs_key.txt          # 用户本地密钥，绝不入库
+tools/__pycache__/
+tools/moc3lib/__pycache__/
+tools/*.pyc
+tools/output*/
+tools/data/
+
+# ---- 常见游戏资产（目录白名单下的兜底） ----
+*.psb
+*.psb.m
+*.moc3
+*.mtn
+*.psd
+*.cmo3
+*.can3
+*.cpy
+*.moc
+mzs_key.txt
+
+# ---- Python / OS 杂物 ----
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+Thumbs.db
