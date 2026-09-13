@@ -116,8 +116,10 @@ def collect(assembler):
                 w = w.compose(Affine(a=sc, d=sc))
             i['world'] = w
     inst = [i for i in inst if i['icon'] not in SILHOUETTE_ICONS]
-    # 渲染顺序 = 层树深度先序遍历序（metadata.zorder 只是组内局部序，
-    # 不能作全局排序键——多对眼件关系曾因此反转）
+    # 渲染顺序：本生成器用纯层树遍历序，眼部相对序靠 eye_stack 置顶补丁保证。
+    # 注意：参数版生成器（build_moc3_params.zsort）的帧缓冲定版规则是
+    # "zorder 主序 + order 次键"，两套策略尚未统一——改动本处排序前
+    # 先按 docs/moc3-format-semantics.md §6 的帧缓冲方法复核。
     inst = sorted(inst, key=lambda i: i['order'])
     meshes = []
     for k, i in enumerate(inst):

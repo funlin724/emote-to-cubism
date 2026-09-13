@@ -111,4 +111,5 @@ docs/finding-your-base-key.md。`mzs_key.txt` 已被 .gitignore 排除，
 
 ## 许可证
 
-代码 MIT，见 LICENSE；文档 CC-BY-4.0。
+代码 MIT，见 LICENSE；文档 CC-BY-4.0，全文见
+https://creativecommons.org/licenses/by/4.0/legalcode

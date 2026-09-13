@@ -23,8 +23,9 @@ tools/mzs_key.txt          # 用户本地密钥，绝不入库
 tools/__pycache__/
 tools/moc3lib/__pycache__/
 tools/*.pyc
-tools/output*/
-tools/data/
+/output*/
+/output_m3/
+/data/
 
 # ---- 常见游戏资产（目录白名单下的兜底） ----
 *.psb

@@ -184,7 +184,7 @@ def build_minimal():
         s = target_w / w
         meshes.append(quad_mesh(
             f'Demo{k}', 0, (0.35 + k * 0.3, 0.35),
-            (target_w, h * s), (l, t, l + w, t + h), 200 + k * 100))
+            (target_w, h * s), (l, t, l + w, t + h), 500 + k * 100))
 
     params = [
         ('ParamAngleX', 30.0, -30.0, 0.0),

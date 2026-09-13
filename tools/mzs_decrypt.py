@@ -31,27 +31,34 @@ LOWER = 0x7fffffff
 
 
 def load_base_key(argv):
-    """从 --key 参数 / MZS_BASE_KEY 环境变量 / mzs_key.txt 读取基础密钥。"""
-    if '--key' in argv:
-        i = argv.index('--key')
-        if i + 1 >= len(argv):
+    """从 --key 参数 / MZS_BASE_KEY 环境变量 / mzs_key.txt 读取基础密钥。
+
+    返回 (base_key, rest)：rest 为移除 '--key' 及其值后的参数副本，
+    不修改调用方的列表。
+    """
+    rest = list(argv)
+    key = None
+    if '--key' in rest:
+        i = rest.index('--key')
+        if i + 1 >= len(rest):
             raise SystemExit('--key 需要一个参数')
-        argv.pop(i)
-        argv.pop(i)
-        return argv[i]
-    env = os.environ.get('MZS_BASE_KEY')
-    if env:
-        return env.strip()
-    cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mzs_key.txt')
-    if os.path.isfile(cfg):
-        with open(cfg, 'r', encoding='utf-8-sig') as f:
-            key = f.read().strip()
-        if key:
-            return key
-    raise SystemExit(
-        '未提供基础密钥。本工具不内置厂商密钥；请用 --key 参数、MZS_BASE_KEY '
-        '环境变量或本地 mzs_key.txt 提供（提取方法见 docs/finding-your-base-key.md）。'
-    )
+        key = rest[i + 1]
+        del rest[i:i + 2]
+    if key is None:
+        env = os.environ.get('MZS_BASE_KEY')
+        if env:
+            key = env.strip()
+    if key is None:
+        cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mzs_key.txt')
+        if os.path.isfile(cfg):
+            with open(cfg, 'r', encoding='utf-8-sig') as f:
+                key = f.read().strip() or None
+    if not key:
+        raise SystemExit(
+            '未提供基础密钥。本工具不内置厂商密钥；请用 --key 参数、MZS_BASE_KEY '
+            '环境变量或本地 mzs_key.txt 提供（提取方法见 docs/finding-your-base-key.md）。'
+        )
+    return key, rest
 
 
 class MT:
@@ -148,7 +155,10 @@ def mzs_encrypt(psb_data, key_string):
 
 
 def main(argv):
-    base_key = load_base_key(argv)
+    if len(argv) < 2 or '-h' in argv or '--help' in argv:
+        print(__doc__)
+        return 1
+    base_key, argv = load_base_key(argv)
     if len(argv) < 2:
         print(__doc__)
         return 1

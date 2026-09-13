@@ -34,4 +34,6 @@ E-mote 是 M2 Co., Ltd. 的商标；Live2D、Cubism 是 Live2D Inc. 的商标。
 
 ## 文档许可
 
-`docs/` 下的格式文档以 CC-BY-4.0 提供（署名-相同方式共享）。
+`docs/` 下的格式文档以 CC-BY-4.0 提供。许可证全文见
+https://creativecommons.org/licenses/by/4.0/legalcode
+（BY：署名本仓库；仓库内不随附许可证全文副本）。
