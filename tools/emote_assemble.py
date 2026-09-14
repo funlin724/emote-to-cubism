@@ -11,6 +11,8 @@
 3. 变换：每层默认帧 content.coord=[x,y,z]（平移）+ content.angle（度，旋转），
    父链仿射累积；icon 锚点放在层原点，即 world = parent_world ∘ T(coord) ∘ R(angle)。
 4. 默认姿势 = 每层 frameList 中时间最小的帧；content.opa 为不透明度（缺省 1）。
+5. footprint()：UV 足迹静态放置（PSD 打包器用）——网格只在可见三角形实际
+   采样的矩形子区域内采图，供打包器 1:1 裁剪放置，避免形变件美术被压扁。
 
 数据来源：FreeMote PsbDecompile 产物（同 parse_motion.py 的目录约定）。
 源目录 = 环境变量 EMOTE_MOTION_DIR（缺省仓库内 data/motion）。
@@ -18,7 +20,7 @@
 **适配层说明**：本文件底部的 DEGENERATE_UV_*/PIECE_NUDGES/hidden_icons 等
 常量是对单个游戏实测出的"本作校准值"（图标 ID、口型变体清单等属于具体
 游戏的指纹，E-mote 规范本身不定义它们）。换游戏复用时需按该游戏的
-图集/部件实际情况重新标定——见 docs/emote-to-cubism-method.md 第 9.1 节
+图集/部件实际情况重新标定——见 docs/emote-to-cubism-method.md 第 5 节
 "通用规则 vs 本作特例"。
 """
 import json, os, re, struct, math
@@ -356,18 +358,13 @@ class Assembler:
                     tris += [idxs[0], idxs[k], idxs[k + 1]]
         return tris
 
-    def mesh_data(self, inst):
-        """返回 (positions, uvs, indices)：锚点相对像素空间的世界坐标三角形。
+    def mesh_geometry(self, inst):
+        """mesh_data 的求值核心：返回中间几何，供 mesh_data 与 footprint 共用。
 
-        权威约定（实证：多数图标 meshMatrix≠矩形推导，旧"verts*矩形WH−origin"
-        约定只对少数特例成立）：
-          mesh.vertices 归一化于"原始图层图像 A×D"（meshMatrix 的 A/D，
-          E,F=−A/2,−D/2 即锚点居中）；pos_local = meshMatrix·(u,v)；
-          矩形内像素 = pos_local + (originX, originY)；
-          UV = (left + 矩形内.x)/atlasW, (top + 矩形内.y)/atlasH。
-        网格外圈顶点的 UV 会落在矩形外 0~5px 的透明沟槽（E-mote 网格
-        比内容裁剪大约一个 thickness），属正常，不 clamp。
-        minAreaRect 只是编辑器元数据，不参与 UV/位置。"""
+        返回 dict(positions, uvs, indices, in_rect, rx, ry)：
+        in_rect[n] = 该顶点采样落在图标矩形内（矩形外=源图透明，其三角形被丢弃）；
+        rx/ry[n] = clamp 到矩形内的矩形内采样坐标（图集 px）。
+        """
         ic = inst['ic']
         m = ic.get('mesh') or {}
         verts = self.deref(m.get('vertices'))
@@ -390,8 +387,11 @@ class Assembler:
             h = float(ic['height'])
             px = [0.0] * n
             py = [0.0] * n
+            in_rect = []
             positions = []
             uvs = []
+            rxl = [0.0] * n
+            ryl = [0.0] * n
             for i in range(n):
                 u, v = verts[2 * i], verts[2 * i + 1]
                 lx = ma * u + mb * v + me           # 锚点相对
@@ -403,9 +403,10 @@ class Assembler:
                 # 零沟槽图集上外扩会咬到相邻件
                 px[i], py[i] = wx, wy
                 positions += [wx, wy]
-                rx = min(max(rx, 0.0), w)
-                ry = min(max(ry, 0.0), h)
-                uvs += [(left + rx) / aw, (top + ry) / ah]
+                in_rect.append(0.0 <= rx <= w and 0.0 <= ry <= h)
+                rxl[i] = min(max(rx, 0.0), w)
+                ryl[i] = min(max(ry, 0.0), h)
+                uvs += [(left + rxl[i]) / aw, (top + ryl[i]) / ah]
             indices = self._tristrip_to_triangles(m)
             if not indices:      # 无有效三角 → 凸包扇
                 indices = self._triangulate(m, n, px, py)
@@ -438,7 +439,8 @@ class Assembler:
                                                    (1, h - 1))
                     uvs += [(left + 1.0 + fu * (w - 2.0)) / aw,
                             (top_ + vr[0] + fv * (vr[1] - vr[0])) / ah]
-            return positions, uvs, indices
+            return {'positions': positions, 'uvs': uvs, 'indices': indices,
+                    'in_rect': in_rect, 'rx': rxl, 'ry': ryl}
         # 无网格图标 → 图标矩形四边形
         corners = [(0, 0), (1, 0), (0, 1), (1, 1)]
         positions = []
@@ -451,7 +453,81 @@ class Assembler:
             wx, wy = world.apply(cx * w - ox, cy * h - oy)
             positions += [wx, wy]
             uvs += [left / aw + cx * uw, top / ah + cy * vh]
-        return positions, uvs, [0, 1, 2, 2, 1, 3]
+        return {'positions': positions, 'uvs': uvs,
+                'indices': [0, 1, 2, 2, 1, 3],
+                'in_rect': [True] * 4,
+                'rx': [0.0, w, 0.0, w], 'ry': [0.0, 0.0, h, h]}
+
+    def mesh_data(self, inst):
+        """返回 (positions, uvs, indices)：锚点相对像素空间的世界坐标三角形。
+
+        权威约定（实证：多数图标 meshMatrix≠矩形推导，旧"verts*矩形WH−origin"
+        约定只对少数特例成立）：
+          mesh.vertices 归一化于"原始图层图像 A×D"（meshMatrix 的 A/D，
+          E,F=−A/2,−D/2 即锚点居中）；pos_local = meshMatrix·(u,v)；
+          矩形内像素 = pos_local + (originX, originY)；
+          UV = (left + 矩形内.x)/atlasW, (top + 矩形内.y)/atlasH。
+        网格外圈顶点的 UV 会落在矩形外 0~5px 的透明沟槽（E-mote 网格
+        比内容裁剪大约一个 thickness），属正常，不 clamp。
+        minAreaRect 只是编辑器元数据，不参与 UV/位置。"""
+        g = self.mesh_geometry(inst)
+        return g['positions'], g['uvs'], g['indices']
+
+    def footprint(self, inst):
+        """UV 足迹静态放置（PSD 打包器对位修复，见 docs/emote-to-cubism-method.md）。
+
+        网格只在 UV 足迹（可见三角形实际采样的矩形子区域）内采样图集；
+        旧打包器把**整矩形**裁剪拉伸到**全网格**世界包围盒——当网格
+        （口/目影/add_mask 等参数形变件）只覆盖矩形一部分时，
+        足迹外的美术被卷进图层、纵横比失配可达数倍。
+
+        裙边（skirt）补充：网格外圈顶点采样在矩形外（透明沟槽），其 UV
+        渲染时**钳制到矩形边缘**——E-mote 的 V 形下巴尖等轮廓正是靠这些
+        钳制裙边三角形画出来的。footprint 裁剪会把它们切平，因此返回值
+        含 `skirt`：带矩形外顶点的三角形（世界坐标 + 钳制 UV），由打包器
+        按原作渲染语义补绘。
+
+        返回 dict：
+          crop  (x0,y0,x1,y1)  图集 px 的足迹裁剪（1:1 像素，零形变）
+          bbox  (minx,miny,maxx,maxy)  足迹顶点（in_rect）的世界包围盒
+          legacy_bbox  全顶点世界包围盒（含裙边；有 skirt 时作放置框）
+          skirt  [(v0,v1,v2),...] 每顶点 (wx,wy,u,v)；无裙边 = []
+        无网格件：crop=整矩形、bbox=legacy_bbox、skirt=[]。
+        """
+        ic = inst['ic']
+        w = float(ic['width'])
+        h = float(ic['height'])
+        left = int(round(float(ic['left'])))
+        top = int(round(float(ic['top'])))
+        g = self.mesh_geometry(inst)
+        pos = g['positions']
+        legacy = (min(pos[0::2]), min(pos[1::2]), max(pos[0::2]), max(pos[1::2]))
+        # 退化 UV 件：UV 不代表真实采样区，维持旧行为（整矩形→全网格 bbox）
+        if inst['icon'] in DEGENERATE_UV_ICONS:
+            return {'crop': (left, top, left + int(round(w)), top + int(round(h))),
+                    'bbox': legacy, 'legacy_bbox': legacy, 'skirt': []}
+        idxs = g['indices']
+        used = set(idxs)
+        vis = [i for i in used if g['in_rect'][i]]
+        if not vis:                       # 全部采样在矩形外（异常）→ 旧行为
+            return {'crop': (left, top, left + int(round(w)), top + int(round(h))),
+                    'bbox': legacy, 'legacy_bbox': legacy, 'skirt': []}
+        # 裙边三角形：三个顶点中任一采样出矩形的（UV 渲染时钳制）
+        skirt = []
+        for k in range(0, len(idxs), 3):
+            tri = (idxs[k], idxs[k + 1], idxs[k + 2])
+            if any(not g['in_rect'][i] for i in tri):
+                skirt.append([(pos[2 * i], pos[2 * i + 1],
+                               g['uvs'][2 * i], g['uvs'][2 * i + 1]) for i in tri])
+        x0 = min(g['rx'][i] for i in vis)
+        x1 = max(g['rx'][i] for i in vis)
+        y0 = min(g['ry'][i] for i in vis)
+        y1 = max(g['ry'][i] for i in vis)
+        xs = [pos[2 * i] for i in vis]
+        ys = [pos[2 * i + 1] for i in vis]
+        bbox = (min(xs), min(ys), max(xs), max(ys))
+        return {'crop': (left + x0, top + y0, left + x1, top + y1),
+                'bbox': bbox, 'legacy_bbox': legacy, 'skirt': skirt}
 
 
 def world_bbox(assembler, instances):

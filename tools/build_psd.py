@@ -3,10 +3,19 @@
 
 把同一角色的多个外观条目（基型 + 换装差分）装配到统一画布，去重后生成
 单个分层 PSD + 「层→外观成员」表（membership.json），供在 Cubism Editor
-内以图层开关实现换装差分。
+内以图层开关实现换装差分，或喂给 psd2live 等自动绑骨工具。
 
-数据来源：tools/emote_assemble.py 的 Assembler（根参数 タイムライン構造，
-适配层说明见 docs/emote-to-cubism-method.md）。
+放置方案（UV 足迹静态放置，对位修复）：
+* 图层内容 = 网格 UV 足迹（可见三角形实际采样的矩形子区域）**1:1 裁剪**，
+  不再整矩形裁剪拉伸——口/目影等参数形变件的网格只覆盖矩形一部分，
+  旧方案会把足迹外的美术卷进图层并压扁（纵横比失配可达数倍）；
+* 放置框 = 足迹顶点的世界包围盒；网格轮廓伸出足迹的件（V 形下巴尖等
+  靠 UV 钳制裙边三角形画的轮廓）退回全网格包围盒并按原作渲染语义
+  补绘裙边三角形（钳制 UV 采样）；
+* 不做裁剪内缩：内缩再拉伸回包围盒会带来系统性尺寸误差；
+  footprint 裁剪本身已排除图集沟槽，resize 仅消化量化差。
+
+数据来源：tools/emote_assemble.py 的 Assembler（footprint/mesh_geometry）。
 
 外观清单配置（必填，JSON 文件）::
 
@@ -20,8 +29,8 @@
 
 剪影件与摆动代理平面的判别经验（实测）：
 * 跨度阈值启发式（x>800 或 y>1500 判为「追加パーツ」摆动代理）会误杀
-  腿部/靴子/衣摆等**可见美术**——默认只排除显式剪影清单（灰色影膜，
-  渲染验证为灰白人体影）；需要复现字面阈值规则时传 --exclude-proxies。
+  腿部/靴子/衣摆等**可见美术**——默认只排除显式剪影清单（灰色影膜）；
+  需要复现字面阈值规则时传 --exclude-proxies。
 * opa=0 的状态件照常生成图层，opacity 设为 0。
 
 用法::
@@ -34,8 +43,8 @@
 import os
 import sys
 import json
-import argparse
 import hashlib
+import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import emote_assemble as EA  # noqa: E402
@@ -79,19 +88,6 @@ def classify_exclusion(short, inst, bb, silhouette, exclude_proxies=False):
     return None
 
 
-def proxy_candidate(short, inst, bb, silhouette):
-    """本会被阈值判为代理、但按实测判定为可见美术而保留的件。"""
-    if inst['icon'] in silhouette.get(short, set()):
-        return None
-    last = inst['path'].rsplit('/', 1)[-1]
-    if PROXY_PATH_TOKEN in last:
-        xspan = bb[2] - bb[0]
-        yspan = bb[3] - bb[1]
-        if xspan > PROXY_XSPAN or yspan > PROXY_YSPAN:
-            return '%s span=(%.0f,%.0f)' % (last, xspan, yspan)
-    return None
-
-
 def load_atlas(set_name, tex):
     """按条目打开正确图集 PNG。"""
     path = os.path.join(EA.SRC, set_name + '.psb.m', tex + '-texture.png')
@@ -111,37 +107,94 @@ def unsqueeze(raw):
     return Image.open(io.BytesIO(raw)).convert('RGBA')
 
 
+def draw_skirt(img, fp, bb, scale, atlas):
+    """按原作渲染语义补绘裙边三角形（UV 钳制采样）。
+
+    足迹裁剪先贴到层内对应位置，再把带矩形外顶点的三角形以钳制 UV
+    光栅化进图层——恢复 V 形下巴尖等靠钳制裙边画的网格轮廓。
+    """
+    import numpy as np
+    tw = img.width
+    th = img.height
+    arr = np.asarray(img).copy()
+    aw, ah = atlas.size
+    fp_bb = fp['bbox']
+    pw0 = int(round((fp_bb[0] - bb[0]) * scale))
+    ph0 = int(round((fp_bb[1] - bb[1]) * scale))
+    pw = max(1, int(round((fp_bb[2] - fp_bb[0]) * scale)))
+    ph = max(1, int(round((fp_bb[3] - fp_bb[1]) * scale)))
+    fp_img = unsqueeze(fp['fp_img']).resize((pw, ph), Image.LANCZOS)
+    arr[ph0:ph0 + ph, pw0:pw0 + pw] = np.asarray(fp_img)
+    for tri in fp['skirt']:
+        pts = [((wx - bb[0]) * scale, (wy - bb[1]) * scale, u, v)
+               for wx, wy, u, v in tri]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        xmin = max(0, int(min(xs)) - 1)
+        xmax = min(tw - 1, int(max(xs)) + 2)
+        ymin = max(0, int(min(ys)) - 1)
+        ymax = min(th - 1, int(max(ys)) + 2)
+        if xmax <= xmin or ymax <= ymin:
+            continue
+        (ax_, ay_, au, av), (bx_, by_, bu, bv), (cx_, cy_, cu, cv) = pts
+        den = ((by_ - cy_) * (ax_ - cx_) + (cx_ - bx_) * (ay_ - cy_))
+        if abs(den) < 1e-9:
+            continue
+        gx, gy = np.meshgrid(np.arange(xmin, xmax + 1) + 0.5,
+                             np.arange(ymin, ymax + 1) + 0.5)
+        l1 = ((by_ - cy_) * (gx - cx_) + (cx_ - bx_) * (gy - cy_)) / den
+        l2 = ((cy_ - ay_) * (gx - cx_) + (ax_ - cx_) * (gy - cy_)) / den
+        l3 = 1.0 - l1 - l2
+        m = (l1 >= -0.001) & (l2 >= -0.001) & (l3 >= -0.001)
+        if not m.any():
+            continue
+        su = (au * l1 + bu * l2 + cu * l3)[m]
+        sv = (av * l1 + bv * l2 + cv * l3)[m]
+        sxa = np.clip((su * aw).astype(int), 0, aw - 1)
+        sya = np.clip((sv * ah).astype(int), 0, ah - 1)
+        sub = arr[ymin:ymax + 1, xmin:xmax + 1]
+        sub[m] = np.asarray(atlas)[sya, sxa]
+    return Image.fromarray(arr)
+
+
 def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=True):
     """遍历各套，返回 (layers, stats, exclusions, kept_proxy)。
 
-    layers: list of dict(img=..., name=..., top=, left=, order=, set_idx=, idx=, opa=)
+    layers: list of dict(raw=..., name=..., top=, left=, order=, set_idx=, idx=, opa=)
     """
     cminx = canvas.get('minx', 0)
     cminy = canvas.get('miny', 0)
     exclusions = []          # (short, icon, path, reason, info)
     kept_proxy = []          # (short, icon, bb, info)  ---- 保留的大尺寸可见件
     stats = {}               # short -> dict(instances, excluded, opa0, kept)
-    seen = {}                # dedup_key -> (short, icon)
+    seen = {}                # dedup_key -> record
     layers = []
 
     for set_idx, (short, name) in enumerate(variants):
-        asm = EA.Assembler(name)
+        asm = EA.Assembler(name, emit_frames=True)
         insts = asm.assemble(root_param=ROOT_PARAM)
         atl_cache = {}
         n_excl = 0
         n_opa0 = 0
         n_kept = 0
         n_dedup = 0
+        n_skirt = 0
         for idx, inst in enumerate(insts):
-            positions, _uvs, _idx = asm.mesh_data(inst)
-            xs = positions[0::2]
-            ys = positions[1::2]
-            if not xs or not ys:
+            fp = asm.footprint(inst)
+            crop, bb = fp['crop'], fp['bbox']
+            skirt = fp['skirt']
+            if skirt:
+                # 网格轮廓伸出 UV 足迹（钳制裙边三角形）：放置框退回全网格框
+                bb = fp['legacy_bbox']
+            if not bb or bb[2] - bb[0] <= 0 or bb[3] - bb[1] <= 0:
                 exclusions.append((short, inst['icon'], inst['path'], 'empty_mesh', ''))
                 n_excl += 1
                 continue
-            bb = (min(xs), min(ys), max(xs), max(ys))
-            pc = proxy_candidate(short, inst, bb, silhouette)
+            pc = None
+            last = inst['path'].rsplit('/', 1)[-1]
+            if (exclude_proxies and PROXY_PATH_TOKEN in last
+                    and ((bb[2] - bb[0]) > PROXY_XSPAN or (bb[3] - bb[1]) > PROXY_YSPAN)):
+                pc = '%s span=(%.0f,%.0f)' % (last, bb[2] - bb[0], bb[3] - bb[1])
             if pc is not None:
                 kept_proxy.append((short, inst['icon'], bb, pc))
             reason = classify_exclusion(short, inst, bb, silhouette, exclude_proxies)
@@ -153,8 +206,6 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
                 n_opa0 += 1
 
             ic = inst['ic']
-            left = int(round(float(ic['left'])))
-            top = int(round(float(ic['top'])))
             w = int(round(float(ic['width'])))
             h = int(round(float(ic['height'])))
             ox = int(round(float(ic['originX'])))
@@ -164,15 +215,17 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
             if atlas is None:
                 atlas = load_atlas(name, inst['tex'])
                 atl_cache[inst['tex']] = atlas
-            # 裁剪（不用 inset）用于内容指纹
-            rect = (left, top, left + max(1, w), top + max(1, h))
-            fp_img = atlas.crop(rect)
+            # 足迹裁剪（1:1 像素）用于内容指纹；裙边数参与指纹
+            cx0 = int(round(crop[0]))
+            cy0 = int(round(crop[1]))
+            cx1 = max(cx0 + 1, int(round(crop[2])))
+            cy1 = max(cy0 + 1, int(round(crop[3])))
+            fp_img = atlas.crop((cx0, cy0, cx1, cy1))
             if fp_img.mode != 'RGBA':
                 fp_img = fp_img.convert('RGBA')
             digest = hashlib.md5(fp_img.tobytes()).hexdigest()
-            fingerprint = (inst['tex'], w, h, ox, oy, digest)
-            bb_q = (int(round(bb[0])), int(round(bb[1])),
-                    int(round(bb[2])), int(round(bb[3])))
+            fingerprint = (inst['tex'], w, h, ox, oy, digest, len(skirt))
+            bb_q = tuple(int(round(v)) for v in bb)
             dedup_key = (fingerprint, bb_q)
             if dedup_key in seen:
                 # 跨套/同性去重：记录该层还被哪些外观需要（成员表，供差分切换）
@@ -182,19 +235,23 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
                 rec_seen['aliases'].append((short, inst['icon']))
                 n_dedup += 1
                 continue
-            seen[dedup_key] = {'owner': (short, inst['icon']),
-                               'members': [short],
+            seen[dedup_key] = {'members': [short],
                                'aliases': [(short, inst['icon'])]}
 
-            # 图层图像：UV 裁剪内缩 1px，避免相邻图块黑边
-            if w > 2 and h > 2:
-                box = (left + 1, top + 1, left + w - 1, top + h - 1)
-            else:
-                box = rect
-            src = atlas.crop(box)
+            # 图层内容 = 足迹裁剪 1:1（足迹已排除图集沟槽，不做内缩）
+            src = atlas.crop((cx0, cy0, cx1, cy1))
+            if src.mode != 'RGBA':
+                src = src.convert('RGBA')
             tw = max(1, int(round((bb[2] - bb[0]) * scale)))
             th = max(1, int(round((bb[3] - bb[1]) * scale)))
-            if src.size != (tw, th):
+            if skirt:
+                src = draw_skirt(Image.new('RGBA', (tw, th), (0, 0, 0, 0)),
+                                 {'bbox': fp['bbox'], 'skirt': skirt,
+                                  'fp_img': squeeze(fp_img)},
+                                 bb, scale, atlas)
+                n_skirt += 1
+            elif src.size != (tw, th):
+                # resize 仅消化量化差（足迹裁剪与足迹包围盒同比例）
                 src = src.resize((tw, th), Image.LANCZOS)
             px = int(round((bb[0] - cminx) * scale))
             py = int(round((bb[1] - cminy) * scale))
@@ -215,10 +272,11 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
 
         atl_cache.clear()
         stats[short] = {'instances': len(insts), 'excluded': n_excl,
-                        'opa0': n_opa0, 'kept': n_kept, 'dedup': n_dedup}
+                        'opa0': n_opa0, 'kept': n_kept, 'dedup': n_dedup,
+                        'skirt': n_skirt}
         if verbose:
-            print('[%s] instances=%d excluded=%d opa0=%d kept=%d dedup_skip=%d'
-                  % (short, len(insts), n_excl, n_opa0, n_kept, n_dedup))
+            print('[%s] instances=%d excluded=%d opa0=%d kept=%d dedup_skip=%d skirt=%d'
+                  % (short, len(insts), n_excl, n_opa0, n_kept, n_dedup, n_skirt))
 
     # 图层顺序：zorder 主序 + order 次序（=moc3 渲染序；纯 order 会后发盖脸）
     layers.sort(key=lambda r: (r['zorder'], r['order'], r['set_idx'], r['idx']))
@@ -311,6 +369,8 @@ def main():
     variants, silhouette, canvas = load_config(args.variants)
     full_w = canvas.get('maxx', 0) - canvas.get('minx', 0)
     full_h = canvas.get('maxy', 0) - canvas.get('miny', 0)
+    if full_h <= 0:
+        ap.error('配置缺少 canvas.miny/maxy（或 maxy<=miny），无法推导画布高度')
     scale = args.scale if args.scale else min(1.0, 4096.0 / full_h)
     W = int(full_w * scale)
     H = int(full_h * scale)
@@ -326,10 +386,11 @@ def main():
     total_excl = sum(s['excluded'] for s in stats.values())
     total_opa0 = sum(s['opa0'] for s in stats.values())
     total_dedup = sum(s['dedup'] for s in stats.values())
+    total_skirt = sum(s['skirt'] for s in stats.values())
     print('%d 套实例总数 = %d' % (len(variants), total_inst))
     print('排除件总数   = %d' % total_excl)
-    print('去重后图层数 = %d  (opa=0 状态件 %d, 跨套/同性去重跳过 %d)'
-          % (len(layers), total_opa0, total_dedup))
+    print('去重后图层数 = %d  (opa=0 状态件 %d, 跨套/同性去重跳过 %d, 裙边补绘 %d)'
+          % (len(layers), total_opa0, total_dedup, total_skirt))
 
     if args.split:
         # 分套：每套独立统一坐标，各自生成
