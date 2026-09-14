@@ -58,6 +58,10 @@
 | `packer_misfit.py` | 打包器对位失配审计：整矩形→全网格框（旧）vs 足迹→足迹框（新）逐件对照 |
 | `moc3_downgrade.py` | MOC5(v5) → moc3 4.0 重序列化（PSD2Live 固定输出 v5、旧 core 只认 v4 的降版工具） |
 | `atlas_bleed.py` | 图集边缘外扩（bleed）：最不透明邻居外推，消网格外圈采样半透明像素的白边 |
+| `dump_rig.py` | moc3 rig 解析器（库）：绑定链/关键帧几何/裁剪链 dump 与双模型比对 |
+| `psd2live_client.py` | PSD2Live MCP 直连客户端（库）。令牌从环境变量或本机注册表读取，不内嵌 |
+| `amp_scale.py` | 把 PSD2Live 工程里绑在指定参数上的关键形变向中性收缩（断点续写 + 写后回读验证） |
+| `build_presets.py` | 生成 blink/idle motion3、表情 exp3、挂载它们的 model3.json（官方 JSON 格式） |
 | `moc3_writer.py` | 最小可验证模型示例（两个四边形网格） |
 | `check_moc3.py` | moc3 摘要 / 逐段对齐校验 / 双文件比对 |
 | `dump_moc3.py` | moc3 全段 dump（与 Editor 真值对照用） |

@@ -44,6 +44,23 @@ stereovisionProfile / version`。
   （装配器按此递归展开，需防环）；
 - `mask` 字段的大数（如 33554432）是通用标志位，与可见性无关。
 
+### parameterize 参数化轴（原作时序还原的钥匙）
+
+参数树节点可带 `parameterize` 标记，指向同参数的 `parameter[]` 数组：
+
+```
+parameter[] = {id, rangeBegin, rangeEnd, division}
+```
+
+- **时间换算**：参数值 v 对应的时间轴位置 `t = (v − rangeBegin) / (rangeEnd − rangeBegin) × division`。
+  层内 `frameList[].time` 就在这个刻度上——重放某参数值时按 t 取帧/插值
+  （`build_moc3_params.py` 的 ReplayWalker 即此原理）。
+- **语义锚**：`metadata.variableMetaInfoList[]` 的 keyframes 标签给出
+  参数刻度上的语义点（如眨眼轴的睁/半/闭、表情轴的通常/怒/哀/笑），
+  是把数值刻度翻译回语义状态的权威依据。
+- 原作时序（眨眼间隔/闭眼时长等）在 `metadata.blinkParameter`；
+  把两者组合即可在 Cubism 侧还原原作的驱动时序（motion3/exp3 或运行时驱动）。
+
 ## 5. source.tex#NNN（图集 + 逐部件几何）
 
 每部件 `icon` 条目：
