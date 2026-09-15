@@ -169,6 +169,7 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
     stats = {}               # short -> dict(instances, excluded, opa0, kept)
     seen = {}                # dedup_key -> record
     layers = []
+    n_zorder = 0             # 有 icon metadata.zorder 的件数（老世代条目可能没有）
 
     for set_idx, (short, name) in enumerate(variants):
         asm = EA.Assembler(name, emit_frames=True)
@@ -268,6 +269,8 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
                 'members': seen[dedup_key]['members'],
                 'aliases': seen[dedup_key]['aliases'],
             })
+            if layers[-1]['zorder']:
+                n_zorder += 1
             n_kept += 1
 
         atl_cache.clear()
@@ -280,6 +283,10 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
 
     # 图层顺序：zorder 主序 + order 次序（=moc3 渲染序；纯 order 会后发盖脸）
     layers.sort(key=lambda r: (r['zorder'], r['order'], r['set_idx'], r['idx']))
+    if n_zorder == 0 and layers:
+        print('[warn] 条目 icon 无 metadata.zorder：画序已退化为层树序，'
+              '预期出现色块错序（历史案例：脖子/发量盖住脸）。'
+              '按 docs/emote-to-cubism-method.md §5 为个别 icon 注入 zorder 标定。')
     return layers, stats, exclusions, kept_proxy
 
 

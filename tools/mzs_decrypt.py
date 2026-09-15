@@ -1,13 +1,24 @@
 # -*- coding: utf-8 -*-
-"""MzS 封装解密器（E-mote / M2 engine 游戏资源通用）。
+"""MzS/MDF 封装解密器（E-mote / M2 engine 游戏资源通用）。
 
-容器布局（docs/mzs-container-format.md）：
+两种容器变体（判别 = 魔数，详见 docs/mzs-container-format.md）：
+
+新世代 mzs\\0（布局）：
   0x00  "mzs\\0"
   0x04  uint32 LE  解压后载荷大小
-  0x08  MDF 加密的 Zstd 帧
+  0x08  MDF 加密的 Zstd 帧（至文件尾）
+  解包 = MDF 解密 → Zstd 解压 → 标准 PSB
+
+老世代 mdf\\0（2015 前后 MAGES 游戏，布局）：
+  0x00  "mdf\\0"
+  0x04  uint32 LE  解压后 PSB 尺寸
+  0x08  MDF 加密的 Zlib 帧（至 len-4）
+  尾部 4 字节 = 解压数据的 Adler32
+  解包 = MDF 解密 → Zlib 解压 → 标准 PSB
+
 MDF = MT19937（init_by_array 播种，种子为 MD5(key) 的 4 个 LE uint32）
       输出字节流前 131 字节循环，与密文逐字节异或；加密区从偏移 8 开始。
-完整密钥 = 基础密钥串 + 文件全名（含扩展名）。
+完整密钥 = 基础密钥串 + 文件全名（含扩展名）。两种变体的密钥模型一致。
 
 **本工具不内置任何厂商密钥。** 基础密钥需用户从自己合法持有的游戏中提取，
 请阅读 docs/finding-your-base-key.md。提供方式（任选其一，优先级从高到低）：
@@ -20,7 +31,7 @@ MDF = MT19937（init_by_array 播种，种子为 MD5(key) 的 4 个 LE uint32）
 用法:
   python tools/mzs_decrypt.py <in.psb.m> [out.psb]
 """
-import hashlib, struct, sys, os
+import hashlib, struct, sys, os, zlib
 
 MDF_PERIOD = 131
 N = 624
@@ -128,8 +139,11 @@ def mdf_crypt(data, key_string):
 
 
 def mzs_decrypt(data, key_string):
+    """按魔数自动分派：mzs\\0（Zstd）或 mdf\\0（Zlib 老变体）。产出标准 PSB。"""
+    if data[:4] == b'mdf\x00':
+        return mdf_decrypt(data, key_string)
     if data[:4] != b'mzs\x00':
-        raise ValueError('not an mzs file: %r' % data[:4])
+        raise ValueError('not an mzs/mdf file: %r' % data[:4])
     payload_size = struct.unpack('<I', data[4:8])[0]
     payload = mdf_crypt(data[8:], key_string)
     try:
@@ -143,8 +157,25 @@ def mzs_decrypt(data, key_string):
     return out
 
 
+def mdf_decrypt(data, key_string):
+    """老世代 mdf\\0 变体：解密 [8:-4] → Zlib 解压 → PSB；尾部 4B = Adler32 校验。"""
+    if len(data) < 16:
+        raise ValueError('mdf file too small: %d bytes' % len(data))
+    expect_size = struct.unpack('<I', data[4:8])[0]
+    body = mdf_crypt(data[8:-4], key_string)
+    if body[:1] != b'\x78':
+        raise ValueError('mdf: 解密结果不是 Zlib 流（密钥错误或格式不符），头字节 %r' % body[:2])
+    out = zlib.decompress(body)
+    adler = struct.unpack('<I', data[-4:])[0]
+    if zlib.adler32(out) & 0xFFFFFFFF != adler:
+        print('[warn] adler32 校验不符（继续输出，文件可能被改动过）')
+    if len(out) != expect_size:
+        print(f'[warn] payload size {len(out)} != header {expect_size}')
+    return out
+
+
 def mzs_encrypt(psb_data, key_string):
-    """回封（供 PsBuild 回包流程参考）：Zstd 压缩 + MDF 异或 + 头。"""
+    """回封新世代 mzs\\0（供 PsBuild 回包流程参考）：Zstd 压缩 + MDF 异或 + 头。"""
     try:
         import zstandard
         comp = zstandard.ZstdCompressor().compress(psb_data)
@@ -152,6 +183,14 @@ def mzs_encrypt(psb_data, key_string):
         import zstd
         comp = zstd.compress(psb_data)
     return b'mzs\x00' + struct.pack('<I', len(psb_data)) + mdf_crypt(comp, key_string)
+
+
+def mdf_encrypt(psb_data, key_string):
+    """回封老世代 mdf\\0：Zlib 压缩 + MDF 异或 + 头 + Adler32 尾。"""
+    comp = zlib.compress(psb_data)
+    return (b'mdf\x00' + struct.pack('<I', len(psb_data))
+            + mdf_crypt(comp, key_string)
+            + struct.pack('<I', zlib.adler32(psb_data) & 0xFFFFFFFF))
 
 
 def main(argv):

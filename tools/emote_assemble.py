@@ -54,7 +54,9 @@ def load_model(base):
 
 
 def _deref_factory(resx):
-    flat = resx['ExtraFlattenArrays']
+    # 部分老世代 FreeMote 产物没有 ExtraFlattenArrays 键（JSON 亦无 #resource@
+    # 引用），缺失时按空表处理
+    flat = resx.get('ExtraFlattenArrays') or {}
 
     def deref(v):
         if isinstance(v, str) and v.startswith('#resource@'):

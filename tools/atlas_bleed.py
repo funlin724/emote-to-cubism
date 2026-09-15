@@ -33,7 +33,7 @@ def bleed(arr: np.ndarray, n: int = 1) -> np.ndarray:
             sa = np.roll(np.roll(a, dy, axis=0), dx, axis=1)
             upd = sa > best_a
             best[upd] = src[upd]
-            best_a[upd] = sa
+            best_a[upd] = sa[upd]
         upd = (best_a > a) & (a < 255)
         out[upd] = best[upd]
         a = out[..., 3].astype(np.int16)

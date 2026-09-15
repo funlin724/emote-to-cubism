@@ -14,6 +14,9 @@
 | `EMOTE_OUT` | 输出目录 | 生成器 |
 | `MZS_BASE_KEY` / `--key` / `mzs_key.txt` | MzS 基础密钥（**用户自带**） | mzs_decrypt |
 
+Shell 注意：上表 `export VAR=...` 是 bash/Zsh 语法；PowerShell 用
+`$env:EMOTE_MOTION_DIR="..."`（仅当前会话生效）。
+
 诊断开关：`HIDE_PIECES`（强制隐藏件）、`NO_EYEBALL`/`NO_MASK`/`TOP_STACK`
 （build_moc3_params 的 A/B 判定开关）。
 
