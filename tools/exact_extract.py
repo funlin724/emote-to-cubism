@@ -11,7 +11,10 @@
 6. 仿射含 flip/zoom/slant（按 transformOrder）；
 7. 变量系统：variableList 默认值 + selectorControl 首选项，变量同名层按
    值域线性映射到帧时间（只映射【内容帧】时间，type0 清理帧不参与——
-   否则隐藏语义失效，变体件漏隐藏）。
+   否则隐藏语义失效，变体件漏隐藏）；
+8. 差分态保留：icon 切换态与变量隐藏件不丢弃，保留为 opacity=0 图层
+   （差分数据供 Editor 绑定，平铺渲染不受污染）；表情模块态强制 0 透明度。
+   两级去重（同位/同艺术指纹）始终取最大 opa，防不可见残影遮蔽可见件。
 
 启发式装配器（emote_assemble.Assembler）保留为新世代单根树条目的回退；
 老世代条目（多根树/变量系统）一律走本提取器。
@@ -181,7 +184,8 @@ class ExactCollector:
             vals = [f.get("frame") for f in v.get("frameList", []) if f.get("frame") is not None]
             if vals:
                 self.var_range[v.get("label")] = (min(vals), max(vals))
-        # 状态补发排除（眨眼/表情模块为 E-mote 标准参数名，两世代通用）
+        # 表情/眨眼模块（E-mote 标准参数名，两世代通用）：状态补发保留，
+        # 但强制 opa=0——它们由运行时参数驱动而非图层切换，不作为可切换图层
         self.state_exclude = {"目L", "目R", "眉L", "眉R", "ハイライトL", "ハイライトR", "涙L", "涙R"}
 
     def var_layer_time(self, layer, fallback_t):
@@ -264,9 +268,10 @@ class ExactCollector:
                 child_ctx = ctx2
             else:
                 child_ctx = ctx
-            # 状态补发：icon 切换层（口型差分等）的其余状态，用父 ctx 发射
-            # （位置随挂载链继承）。眨眼/眉/高光/泪等表情态排除。
-            if content is not None and motion not in self.state_exclude:
+            # 状态补发：icon 切换层（口型/眨眼/腮红等差分态）的其余状态，
+            # 用父 ctx 发射（位置随挂载链继承）。表情/眨眼态按工具链设计
+            # 以 opacity=0 图层保留（差分数据不丢，平铺渲染不受污染）。
+            if content is not None:
                 seen_icons = []
                 state_frames = []
                 for fr in fl:
@@ -283,7 +288,10 @@ class ExactCollector:
                     for ic, c in state_frames:
                         if ic == str(content.get("icon")):
                             continue  # 静息态已发射
-                        self.emit(c, build_ctx(layer, c, ctx), path2)
+                        sctx = build_ctx(layer, c, ctx)
+                        if motion in self.state_exclude:
+                            sctx["opa"] = 0.0
+                        self.emit(c, sctx, path2)
             if int(layer.get("exportSelf", 1) or 0) != 0:
                 for ch in layer.get("children") or []:
                     self.travel(ch, group, motion, t_eff, child_ctx, stack, path2)
@@ -302,14 +310,11 @@ class ExactCollector:
         motion = md.get("motion") or "タイムライン構造"
         self.travel_motion(group, motion, {"x": 0.0, "y": 0.0, "z": 0.0,
                                            "opa": 255, "m": M2()}, set(), "")
-        # 丢弃静息不可见实例（opa=0 的交叉淡化残影）。否则同艺术指纹的
-        # 不可见件会占住去重的坑，把可见件当重复丢掉（实例：鼻三态同图，
-        # opa=0 残影遮蔽 opa=255 正面 → 鼻子"消失"）。
-        invisible = [i for i in self.insts if i["opa"] <= 0.001]
-        if invisible:
-            print("drop invisible (opa<=0) instances:", len(invisible),
-                  sorted({i["icon"] for i in invisible}))
-        self.insts = [i for i in self.insts if i["opa"] > 0.001]
+        # 差分态保留策略（对齐 build_psd 设计"opa=0 的状态件照常生成图层"）：
+        # opa≤0 的实例【不丢弃】，作为 opacity=0 图层保留（腕B 变体、腮红档、
+        # 张口内衬、眨眼态等差分数据供 Editor 绑定）。
+        # 但两级去重必须先行，且取最大 opa——否则同图件的不可见残影会
+        # 占住 build_psd 指纹去重的坑，把可见件遮没（实例：D7 鼻三态同图）。
         print("[extract] after travel+opa:", len(self.insts), flush=True)
         # 同图标同位置去重：保留 opa 最大的实例。
         # （多根/拼接树会经两条路径到达同一部件；跨交淡入淡出帧的一条路径

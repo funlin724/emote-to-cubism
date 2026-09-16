@@ -52,7 +52,7 @@ Shell 注意：上表 `export VAR=...` 是 bash/Zsh 语法；PowerShell 用
 `mzs_decrypt`（mdf\0 变体自动识别）→ FreeMote 解包多部件 →
 `merge_emote_parts.py` 合并为单条目 → `exact_extract.py` 按引擎语义
 （StaticMotionPainterCore）精确求值 → `build_psd.py`。
-差异清单与配方见 docs/emote-to-cubism-method.md §7。
+差异清单与配方见 docs/emote-to-cubism-method.md §8。
 
 ## 脚本清单
 
@@ -67,7 +67,7 @@ Shell 注意：上表 `export VAR=...` 是 bash/Zsh 语法；PowerShell 用
 | `eye_stack.py` | 眼部件 draw_order 相对序校正（值集守恒） |
 | `bake_stencil.py` | 【退役】眼部模板烘焙（历史对照保留） |
 | `merge_emote_parts.py` | 老世代多部件条目合并：组名并集、纹理改名+icon 分段重排、src 改写、多根 layer 拼接（配方经可移植性审查实证） |
-| `exact_extract.py` | 引擎语义精确提取器（StaticMotionPainterCore 语义：默认时间/帧类型/opa 255 继承/Z 序/变量系统），门面替换后走 build_psd——老世代条目的推荐路径 |
+| `exact_extract.py` | 引擎语义精确提取器（StaticMotionPainterCore 语义：默认时间/帧类型/opa 255 继承/Z 序/变量系统/差分态保留为 opacity=0 图层），门面替换后走 build_psd——老世代条目的推荐路径 |
 | `build_psd.py` | 多外观合并 PSD + 层→外观成员表（换装差分）。UV 足迹静态放置：足迹 1:1 裁剪、裙边三角形按钳制 UV 补绘；去重取可见件优先 |
 | `packer_misfit.py` | 打包器对位失配审计：整矩形→全网格框（旧）vs 足迹→足迹框（新）逐件对照 |
 | `moc3_downgrade.py` | MOC5(v5) → moc3 4.0 重序列化（PSD2Live 固定输出 v5、旧 core 只认 v4 的降版工具） |
