@@ -180,6 +180,7 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
         n_kept = 0
         n_dedup = 0
         n_skirt = 0
+        n_visfix = 0
         for idx, inst in enumerate(insts):
             fp = asm.footprint(inst)
             crop, bb = fp['crop'], fp['bbox']
@@ -228,35 +229,46 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
             fingerprint = (inst['tex'], w, h, ox, oy, digest, len(skirt))
             bb_q = tuple(int(round(v)) for v in bb)
             dedup_key = (fingerprint, bb_q)
+
+            def make_src():
+                # 图层内容 = 足迹裁剪 1:1（足迹已排除图集沟槽，不做内缩）
+                src = atlas.crop((cx0, cy0, cx1, cy1))
+                if src.mode != 'RGBA':
+                    src = src.convert('RGBA')
+                tw = max(1, int(round((bb[2] - bb[0]) * scale)))
+                th = max(1, int(round((bb[3] - bb[1]) * scale)))
+                if skirt:
+                    src = draw_skirt(Image.new('RGBA', (tw, th), (0, 0, 0, 0)),
+                                     {'bbox': fp['bbox'], 'skirt': skirt,
+                                      'fp_img': squeeze(fp_img)},
+                                     bb, scale, atlas)
+                elif src.size != (tw, th):
+                    # resize 仅消化量化差（足迹裁剪与足迹包围盒同比例）
+                    src = src.resize((tw, th), Image.LANCZOS)
+                return src
+
             if dedup_key in seen:
-                # 跨套/同性去重：记录该层还被哪些外观需要（成员表，供差分切换）
+                # 跨套/同性去重：记录该层还被哪些外观需要（成员表，供差分切换）。
+                # 可见件优先（同指纹+同位的交叉淡化残影不得占坑）：
+                # 三态同图件（如鼻 2001/2002/2000 同一裁剪）中 opa=0 的
+                # 残影先到会把全不透明的可见件挤掉——取更大 opa 者为代表。
                 rec_seen = seen[dedup_key]
                 if short not in rec_seen['members']:
                     rec_seen['members'].append(short)
                 rec_seen['aliases'].append((short, inst['icon']))
+                if inst['opa'] > rec_seen['opa']:
+                    rec_seen['raw'] = squeeze(make_src())
+                    rec_seen['opa'] = inst['opa']
+                    n_visfix += 1
                 n_dedup += 1
                 continue
-            seen[dedup_key] = {'members': [short],
-                               'aliases': [(short, inst['icon'])]}
 
-            # 图层内容 = 足迹裁剪 1:1（足迹已排除图集沟槽，不做内缩）
-            src = atlas.crop((cx0, cy0, cx1, cy1))
-            if src.mode != 'RGBA':
-                src = src.convert('RGBA')
-            tw = max(1, int(round((bb[2] - bb[0]) * scale)))
-            th = max(1, int(round((bb[3] - bb[1]) * scale)))
+            src = make_src()
             if skirt:
-                src = draw_skirt(Image.new('RGBA', (tw, th), (0, 0, 0, 0)),
-                                 {'bbox': fp['bbox'], 'skirt': skirt,
-                                  'fp_img': squeeze(fp_img)},
-                                 bb, scale, atlas)
                 n_skirt += 1
-            elif src.size != (tw, th):
-                # resize 仅消化量化差（足迹裁剪与足迹包围盒同比例）
-                src = src.resize((tw, th), Image.LANCZOS)
             px = int(round((bb[0] - cminx) * scale))
             py = int(round((bb[1] - cminy) * scale))
-            layers.append({
+            rec = {
                 'raw': squeeze(src),
                 'name': 'p_%s_%s' % (short, inst['icon']),
                 'top': py, 'left': px,
@@ -266,20 +278,22 @@ def collect(variants, silhouette, canvas, scale, exclude_proxies=False, verbose=
                 # 但作为全局主键 + order 次序 = 与 moc3 一致的渲染序）
                 'zorder': (inst.get('ic', {}).get('metadata') or {}).get('zorder') or 0,
                 'set_idx': set_idx, 'idx': idx,
-                'members': seen[dedup_key]['members'],
-                'aliases': seen[dedup_key]['aliases'],
-            })
-            if layers[-1]['zorder']:
+                'members': [short],
+                'aliases': [(short, inst['icon'])],
+            }
+            if rec['zorder']:
                 n_zorder += 1
+            layers.append(rec)
+            seen[dedup_key] = rec
             n_kept += 1
 
         atl_cache.clear()
         stats[short] = {'instances': len(insts), 'excluded': n_excl,
                         'opa0': n_opa0, 'kept': n_kept, 'dedup': n_dedup,
-                        'skirt': n_skirt}
+                        'skirt': n_skirt, 'visfix': n_visfix}
         if verbose:
-            print('[%s] instances=%d excluded=%d opa0=%d kept=%d dedup_skip=%d skirt=%d'
-                  % (short, len(insts), n_excl, n_opa0, n_kept, n_dedup, n_skirt))
+            print('[%s] instances=%d excluded=%d opa0=%d kept=%d dedup_skip=%d skirt=%d visfix=%d'
+                  % (short, len(insts), n_excl, n_opa0, n_kept, n_dedup, n_skirt, n_visfix))
 
     # 图层顺序：zorder 主序 + order 次序（=moc3 渲染序；纯 order 会后发盖脸）
     layers.sort(key=lambda r: (r['zorder'], r['order'], r['set_idx'], r['idx']))

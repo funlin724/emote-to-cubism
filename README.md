@@ -52,6 +52,13 @@ Editor 侧的操作要照文档手动完成。
 前提：你拥有合法游戏副本，并已用 FreeMote 解出目标条目，得到
 `<条目>.psb.m.json`、`<条目>.psb.m.resx.json` 和 `tex#NNN-texture.png` 图集。
 
+从 info+body 归档提取条目：
+`PsbDecompile.exe info-psb -k <基础密钥串> -l 131 <xxx_info.psb.m>`
+（body 必须与 info 同目录同名）。注意 FreeMote 顶层的 `-k` 是 uint PSB key
+（只对 .emt/老 PSB 生效），与 info-psb 子命令的字符串 `-k` 语义不同，
+误用会直接抛异常。老世代（2015 前后）条目常拆成多个部件文件，需先合并
+为单条目——见 docs/emote-to-cubism-method.md 的适配层说明。
+
 ```bash
 pip install -r requirements.txt
 export EMOTE_MOTION_DIR=/path/to/decompiled/motion

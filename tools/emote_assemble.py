@@ -190,11 +190,19 @@ class Assembler:
                     if isinstance(p, dict):
                         lay = p.get('layer')
                         if isinstance(lay, list) and lay:
+                            if len(lay) > 1:
+                                # 老世代条目常见多根（如頭部変形基礎拆
+                                # 頭部セット/表情セット两根）；registry 只取
+                                # 第一根，其余需在条目合并时拼接
+                                self.multi_root.append((pn, len(lay)))
                             self.registry.setdefault(pn, lay[0])
                         else:
                             self.registry.setdefault(pn, None)
         self.instances = []   # dict(icon, tex, ic, world, opa, order)
         self._order = 0
+        # 跨游戏静默失败防护（可移植性审查教训：R1 产出废品而全程零告警）
+        self.multi_root = []  # [(参数名, 根数)] layer 树多根的参数
+        self.src_miss = set()  # src 不是 tex# 前缀而被跳过的图标
         # 头-身接口校准：默认帧选择修复（default_frame）后原生头位置已正确，
         # 校准整体置空。若换游戏出现头-颈错位，可按
         # metadata.charaProfile.pixelMarker 标定反推补偿量填回这里。
@@ -223,6 +231,16 @@ class Assembler:
             for key, (dx, dy) in self.branch_correction.items():
                 if key in inst['path']:
                     inst['world'] = inst['world'].compose(translation(dx, dy))
+        if self.multi_root:
+            names = ', '.join('%s×%d根' % (pn, n) for pn, n in self.multi_root[:5])
+            print('[warn] %d 个参数的 layer 树有多根，registry 只用第一根：%s'
+                  '——老世代条目需先经条目合并拼接（见 docs/emote-to-cubism-method.md）'
+                  % (len(self.multi_root), names))
+        if self.src_miss:
+            print('[warn] %d 个图标的 src 不是 tex# 前缀、已被跳过（如 %s）——'
+                  '老世代条目 src 为裸纹理名，需先经条目合并适配改写，'
+                  '否则产出为空/残缺'
+                  % (len(self.src_miss), ', '.join(sorted(self.src_miss)[:5])))
         return self.instances
 
     def _walk(self, layer, world, stack, depth, path=''):
@@ -269,8 +287,12 @@ class Assembler:
                     if grafted is not None:
                         self._walk(grafted, w3, stack + (icon,), depth + 1,
                                    path2 + '>' + icon)
-            elif (isinstance(icon, str) and ICON_RE.match(icon)
-                  and str(content.get('src', '')).startswith('tex#')):
+            elif isinstance(icon, str) and ICON_RE.match(icon):
+                if not str(content.get('src', '')).startswith('tex#'):
+                    # src 为裸纹理名等非 tex# 形态（老世代条目），静默跳过
+                    # 曾致整模型 0 件产出——计数并在 assemble 末尾告警
+                    self.src_miss.add(icon)
+                    continue
                 tex, ic = self.icons[icon]
                 opa = content.get('opa', 1)
                 if icon in self.hidden_icons:
