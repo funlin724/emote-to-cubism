@@ -56,8 +56,10 @@ Editor 侧的操作要照文档手动完成。
 `PsbDecompile.exe info-psb -k <基础密钥串> -l 131 <xxx_info.psb.m>`
 （body 必须与 info 同目录同名）。注意 FreeMote 顶层的 `-k` 是 uint PSB key
 （只对 .emt/老 PSB 生效），与 info-psb 子命令的字符串 `-k` 语义不同，
-误用会直接抛异常。老世代（2015 前后）条目常拆成多个部件文件，需先合并
-为单条目——见 docs/emote-to-cubism-method.md 的适配层说明。
+误用会直接抛异常。老世代（2015 前后）条目常拆成多个部件文件，需先用
+`tools/merge_emote_parts.py` 合并为单条目，再用 `tools/exact_extract.py`
+（引擎语义精确求值）代替启发式装配走 build_psd——细节见
+docs/emote-to-cubism-method.md 的适配层与已知边界两节。
 
 ```bash
 pip install -r requirements.txt

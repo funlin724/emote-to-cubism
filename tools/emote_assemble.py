@@ -184,6 +184,9 @@ class Assembler:
                 for iid, ic in t['icon'].items():
                     self.icons[iid] = (tex, ic)
         self.registry = {}    # param name -> layer tree root (or None for empty)
+        # 跨游戏静默失败防护（可移植性审查教训：R1 产出废品而全程零告警）
+        self.multi_root = []  # [(参数名, 根数)] layer 树多根的参数
+        self.src_miss = set()  # src 不是 tex# 前缀而被跳过的图标
         for gname, g in self.obj.items():
             if isinstance(g, dict) and 'motion' in g:
                 for pn, p in g['motion'].items():
@@ -200,9 +203,6 @@ class Assembler:
                             self.registry.setdefault(pn, None)
         self.instances = []   # dict(icon, tex, ic, world, opa, order)
         self._order = 0
-        # 跨游戏静默失败防护（可移植性审查教训：R1 产出废品而全程零告警）
-        self.multi_root = []  # [(参数名, 根数)] layer 树多根的参数
-        self.src_miss = set()  # src 不是 tex# 前缀而被跳过的图标
         # 头-身接口校准：默认帧选择修复（default_frame）后原生头位置已正确，
         # 校准整体置空。若换游戏出现头-颈错位，可按
         # metadata.charaProfile.pixelMarker 标定反推补偿量填回这里。

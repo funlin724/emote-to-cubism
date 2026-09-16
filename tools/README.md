@@ -25,11 +25,14 @@ Shell 注意：上表 `export VAR=...` 是 bash/Zsh 语法；PowerShell 用
 ```
 游戏档案 ──mzs_decrypt.py──▶ PSB ──FreeMote PsbDecompile──▶ JSON+图集
    │
+   ├─ merge_emote_parts.py     老世代多部件条目合并（老世代专用，见下）
    ├─ parse_motion.py          部件切割 + 清单 + 曲线 + 层树（质检起点）
    ├─ qc_parse.py              parse 产物质检（三方计数 + 逐像素贴回比对）
    ├─ emote_assemble.py        层树装配器（库，含 mesh_geometry/footprint）
    │
    │  ── 主接口（担保级）：PSB → PSD ──
+   │  新世代单根树条目：emote_assemble 启发式装配
+   │  老世代条目（多根树/变量系统）：exact_extract.py 精确求值（推荐）
    └─ build_psd.py             多外观合并 PSD + 层→外观成员表
                                   （UV 足迹静态放置；导入 Cubism Editor /
                                    喂 psd2live 等绑骨工具）
@@ -45,6 +48,12 @@ Shell 注意：上表 `export VAR=...` 是 bash/Zsh 语法；PowerShell 用
    └─ atlas_bleed.py           图集边缘外扩（bleed），消网格外圈白边
 ```
 
+老世代条目（2015 前后 MAGES/E-mote 游戏）的额外步骤：
+`mzs_decrypt`（mdf\0 变体自动识别）→ FreeMote 解包多部件 →
+`merge_emote_parts.py` 合并为单条目 → `exact_extract.py` 按引擎语义
+（StaticMotionPainterCore）精确求值 → `build_psd.py`。
+差异清单与配方见 docs/emote-to-cubism-method.md §7。
+
 ## 脚本清单
 
 | 脚本 | 说明 |
@@ -57,7 +66,9 @@ Shell 注意：上表 `export VAR=...` 是 bash/Zsh 语法；PowerShell 用
 | `build_moc3_params.py` | 参数绑定生成器：重放法提取位置 keyform + 多 binding 张量积 |
 | `eye_stack.py` | 眼部件 draw_order 相对序校正（值集守恒） |
 | `bake_stencil.py` | 【退役】眼部模板烘焙（历史对照保留） |
-| `build_psd.py` | 多外观合并 PSD + 层→外观成员表（换装差分）。UV 足迹静态放置：足迹 1:1 裁剪、裙边三角形按钳制 UV 补绘 |
+| `merge_emote_parts.py` | 老世代多部件条目合并：组名并集、纹理改名+icon 分段重排、src 改写、多根 layer 拼接（配方经可移植性审查实证） |
+| `exact_extract.py` | 引擎语义精确提取器（StaticMotionPainterCore 语义：默认时间/帧类型/opa 255 继承/Z 序/变量系统），门面替换后走 build_psd——老世代条目的推荐路径 |
+| `build_psd.py` | 多外观合并 PSD + 层→外观成员表（换装差分）。UV 足迹静态放置：足迹 1:1 裁剪、裙边三角形按钳制 UV 补绘；去重取可见件优先 |
 | `packer_misfit.py` | 打包器对位失配审计：整矩形→全网格框（旧）vs 足迹→足迹框（新）逐件对照 |
 | `moc3_downgrade.py` | MOC5(v5) → moc3 4.0 重序列化（PSD2Live 固定输出 v5、旧 core 只认 v4 的降版工具） |
 | `atlas_bleed.py` | 图集边缘外扩（bleed）：最不透明邻居外推，消网格外圈采样半透明像素的白边 |
