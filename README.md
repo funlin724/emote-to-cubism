@@ -101,11 +101,11 @@ docs/finding-your-base-key.md。`mzs_key.txt` 已被 .gitignore 排除，
 
 ## 致谢与相关项目
 
-- [FreeMote](https://github.com/uanu2002/FreeMote)——E-mote PSB 工具链，
+- [FreeMote](https://github.com/UlyssesWu/FreeMote)——E-mote PSB 工具链，
   解包回封的基础设施，MDF 算法的参考实现
 - [py-moc3](https://pypi.org/project/py-moc3/)——moc3lib 的基座，本仓库
   修复了它的段顺序和计数字段等写出 bug，见 docs
-- [psd2live](https://github.com/psd2live/psd2live)——命名 PSD 自动建模
+- [psd2live](https://github.com/tsunehimatoi/psd2live)——命名 PSD 自动建模
   直出 cmo3。与本项目互补：它解决从 PSD 建模，本项目解决从 E-mote
   游戏数据保真搬运，它的输入可以由本仓库的主接口直接生成
 - [GARbro](https://github.com/morkt/GARbro)——通用视觉小说归档浏览，

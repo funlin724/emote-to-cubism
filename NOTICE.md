@@ -26,7 +26,7 @@
 | 组件 | 来源 | 用途 |
 |---|---|---|
 | py-moc3 | PyPI `py-moc3` 0.1.0 | `tools/moc3lib/` 的基座；本仓库修复其写出器 bug（段顺序、计数字段语义、SOT 偏移），修复记录见 docs/moc3-format-semantics.md |
-| FreeMote | https://github.com/uanu2002/FreeMote | 外部工具（不随本仓库分发）；解包/回封基础设施，MDF 算法参考实现 |
+| FreeMote | https://github.com/UlyssesWu/FreeMote | 外部工具（不随本仓库分发）；解包/回封基础设施，MDF 算法参考实现 |
 | Live2D Cubism | Live2D Inc. | 运行时/Editor 为商业软件，不随本仓库分发；格式逆向仅作互操作研究 |
 
 E-mote 是 M2 Co., Ltd. 的商标；Live2D、Cubism 是 Live2D Inc. 的商标。
